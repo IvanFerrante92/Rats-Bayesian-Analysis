@@ -1,0 +1,387 @@
+---
+title: "Rats - An Bayesian analysis"
+author: "Ivan Ferrante (1563390)"
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r, warning=FALSE,message=FALSE}
+library(R2jags)
+library(ggplot2)
+
+```
+
+
+## Introduction 
+<br>
+The data contains 30 young rats whose weights were
+measured weekly for five weeks. Dependent variable $Y_{ij}$ is the weight of the $i^{th}$ rat at age $x_j$.
+<br>
+```{r}
+rats.data  <- list(x = c(8.0, 15.0, 22.0, 29.0, 36.0), xbar = 22, N = 30, T = 5,	
+		Y = c(151, 199, 246, 283, 320,
+							 145, 199, 249, 293, 354,
+							 147, 214, 263, 312, 328,
+							 155, 200, 237, 272, 297,
+							 135, 188, 230, 280, 323,
+							 159, 210, 252, 298, 331,
+							 141, 189, 231, 275, 305,
+							 159, 201, 248, 297, 338,
+							 177, 236, 285, 350, 376,
+							 134, 182, 220, 260, 296,
+							 160, 208, 261, 313, 352,
+							 143, 188, 220, 273, 314,
+							 154, 200, 244, 289, 325,
+							 171, 221, 270, 326, 358,
+							 163, 216, 242, 281, 312,
+							 160, 207, 248, 288, 324,
+							 142, 187, 234, 280, 316,
+							 156, 203, 243, 283, 317,
+							 157, 212, 259, 307, 336,
+							 152, 203, 246, 286, 321,
+							 154, 205, 253, 298, 334,
+							 139, 190, 225, 267, 302,
+							 146, 191, 229, 272, 302,
+							 157, 211, 250, 285, 323,
+							 132, 185, 237, 286, 331,
+							 160, 207, 257, 303, 345,
+							 169, 216, 261, 295, 333,
+							 157, 205, 248, 289, 316,
+							 137, 180, 219, 258, 291,
+							 153, 200, 244, 286, 324))
+
+Y <- matrix(rats.data$Y, nrow = rats.data$N, ncol = rats.data$T, byrow = TRUE)
+Y
+T <- rats.data$T
+T
+x <-  rats.data$x
+x
+xbar <- rats.data$xbar
+xbar
+N <- rats.data$N
+N
+
+```
+<br>
+
+We can plot each rats growth in the time, by pick the transpose matrix of our data:
+```{r, warning=FALSE}
+times = as.numeric(rats.data$x)
+matplot(times, t(Y), type = "b", pch = 16, lty = 1)
+```
+
+We can use the frequentistic approach in order to predict the weight $Y$ from time $x_j$ for each rat.
+```{r}
+# LINEAR REGRESSION
+array_intercept <- rep(NA,N)
+array_slope <- rep(NA,N)
+for(i in 1:N)
+{
+  linear_reg <- lm(Y[i,] ~ x)
+  array_intercept[i] <- linear_reg$coefficients[[1]]
+  array_slope[i] <- linear_reg$coefficients[[2]]
+}
+array_intercept
+array_slope
+# INTERCEPT MEAN
+mean_alpha <- mean(array_intercept)
+mean_alpha
+# SLOPE MEAN
+mean_beta <- mean(array_slope)
+mean_beta
+plot(x,colMeans(Y), lwd=4, xlab = "days", ylab = "weight", 
+     col="red", ylim=c(135,355))
+points(rep(x[1],N), Y[,1])
+points(rep(x[2],N), Y[,2])
+points(rep(x[3],N), Y[,3])
+points(rep(x[4],N), Y[,4])
+points(rep(x[5],N), Y[,5])
+abline(mean_alpha, mean_beta, col="orchid", lwd=2.5)
+grid()
+```
+
+## First Model: Normal hierarchical model
+
+<br>
+The first model, suggested by WinBugs, is essentially a random effects linear growth curve
+$$Y_{ij} \sim Normal(\alpha_i+\beta_i(x_j), \tau_c)$$
+$$\alpha_i \sim Normal(\alpha_c, \tau_{\alpha})$$
+$$\beta_i \sim Normal(\beta_c, \tau_{\beta})$$
+$$\alpha_c \sim Normal(0, 1.0E-6)$$
+$$\beta_c \sim Normal(0, 1.0E-6)$$
+$$\tau_\alpha \sim Gamma(1.0E-3, 1.0E-3)$$
+$$\tau_\beta \sim Gamma(1.0E-3, 1.0E-3)$$
+$$\tau_c \sim Gamma(1.0E-3,1.0E-3)$$
+
+where $\bar{x}$ and $\tau$ represent the precision of Normal distribution.
+$\alpha_c\,,\beta_c\,,\tau_{\alpha}\,,\tau_{\beta}\,,\tau_c$ are "non-informative" priors.
+<br>
+In the WinBugs guidelines of this dataset, the $x_j$ is standadized around their mean in order to reduce dependence between $\alpha_i$ and $\beta_i$ in their likelihood. We'll not do it and we will use the priors mentioned above.
+<br>
+
+```{r}
+rats.model <- function()  {
+  
+  for (i in 1:N) {
+    
+      for (j in 1:T) {
+      
+        Y[i,j]   ~ dnorm(mu[i,j],tau.c) 
+        mu[i,j] <- alpha[i] + beta[i]*(x[j]);
+        
+        }
+        
+      alpha[i] ~ dnorm(alpha.c,tau.alpha);
+      beta[i]  ~ dnorm(beta.c,tau.beta); }
+
+    alpha.c   ~ dnorm(0,1.0E-6);
+    beta.c    ~ dnorm(0,1.0E-6);
+    tau.c     ~ dgamma(1.0E-3,1.0E-3);
+    tau.alpha ~ dgamma(1.0E-3,1.0E-3);
+    tau.beta  ~ dgamma(1.0E-3,1.0E-3);
+    sigma <- 1.0 / sqrt(tau.c)
+    x.bar    <- mean(x[]);
+    alpha0 <- alpha.c - beta.c * x.bar
+	}
+```
+
+<br>
+Now we can define the vectors of the data matrix, the starting values and the name of the parameter for JAGS:
+<br>
+```{r}
+rats.data  <- list("Y", "x", "T", "N")
+rats.params <- c("tau.c", "alpha.c", "beta.c", "tau.alpha", "tau.beta")
+
+## Define the starting values for JAGS
+
+rats.inits <- function(){
+  list(alpha = c(250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 
+                 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250),
+       beta  = c(6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 
+                 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6),			
+       alpha.c = 150, beta.c = 10, 
+       tau.c = 1, tau.alpha = 1, tau.beta = 1)
+}
+```
+<br>
+At this point we can run our JAGS function:
+```{r}
+ratsfit <- jags(data=rats.data, inits=rats.inits, rats.params, n.chains=2, n.iter=10000, n.burnin=1000, n.thin = 1, model.file=rats.model)
+
+ratsfit.mcmc <- as.mcmc(ratsfit)
+
+summary(ratsfit.mcmc)
+```
+<br>
+We can compare the results of our first model with the frequentist approach used above:
+<br>
+```{r}
+# INTERCEPT MEAN MODEL 1
+ratsfit$BUGSoutput$mean$alpha.c
+# SLOP MEAN MODEL 2
+ratsfit$BUGSoutput$mean$beta.c
+
+# MODEL 1 vs. FREQ APPROACH
+plot(x,colMeans(Y), lwd=4, xlab = "age (days)", ylab = "weight",
+     col="red", ylim=c(135,355))
+points(rep(x[1],N), Y[,1])
+points(rep(x[2],N), Y[,2])
+points(rep(x[3],N), Y[,3])
+points(rep(x[4],N), Y[,4])
+points(rep(x[5],N), Y[,5])
+abline(ratsfit$BUGSoutput$mean$alpha.c, 
+       ratsfit$BUGSoutput$mean$beta.c, col="green", lwd=8)
+abline(mean_alpha, mean_beta, col="orchid", lwd=2)
+grid()
+```
+
+<br>
+Another graphic method of diagnostic for convergence that we have seen at lessons, is **Gelman's plot**. This method can be applied when we have more than one chain and consists in calculating the 'within variance' of each chain, subtract from this value the 'between variance' of two chain and then multiply by a scaling factor.
+<br>
+```{r}
+gelman.plot(ratsfit.mcmc)
+```
+
+## Second Model: Uniform priors.
+
+In this second model we want try to change some prior parameters and see what happen at our model. Our prior sigma.alpha and sigma.beta are distributed as uniform. 
+So we will be:
+
+$$\alpha_i \sim Normal(\alpha_c, \tau_\alpha)$$
+
+$$\beta_i \sim Normal(\beta_c, \tau_\beta)$$
+$$\alpha_c \sim Normal(0, 1.0E-6)$$
+
+$$\beta_c \sim Normal(0, 1.0E-6)$$
+$$\tau_\alpha , \tau_\beta , \tau_c \sim Unif(0, 100)$$
+
+
+```{r}
+rats.model2 <- function()  {
+  
+  for (i in 1:N) {
+    
+      for (j in 1:T) {
+      
+        mu[i,j] <- alpha[i] + beta[i]*(x[j]);
+        Y[i,j]   ~ dnorm(mu[i,j],tau.c) 
+        
+        }
+        
+      alpha[i] ~ dnorm(alpha.c,tau.alpha);
+      beta[i]  ~ dnorm(beta.c,tau.beta); }
+
+    alpha.c   ~ dnorm(0,1.0E-6);
+    beta.c    ~ dnorm(0,1.0E-6);
+    tau.c     <- 1.0 / (sigma*sigma);
+    sigma  ~ dunif(0,100)
+    tau.alpha <- 1.0 / (sigma.alpha*sigma.alpha);
+    sigma.alpha ~ dunif(0,100)
+    tau.beta <- 1/(sigma.beta*sigma.beta)
+    sigma.beta ~ dunif(0,100)
+    x.bar    <- mean(x[]);
+    alpha0 <- alpha.c - beta.c * x.bar
+	}
+
+
+
+rats.data2  <- list("Y", "x", "T", "N")
+rats.params2 <- c("alpha.c", "beta.c", "sigma", "sigma.alpha", "sigma.beta")
+
+## Define the starting values for JAGS
+
+rats.inits2 <- function(){
+  list(alpha = c(250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 
+                 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250),
+       beta  = c(6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 
+                 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6),			
+       alpha.c = 150, beta.c = 10, 
+       sigma = 1, sigma.alpha = 1, sigma.beta = 1)
+}
+
+ratsfit2 <- jags(data=rats.data2, inits=rats.inits2, rats.params2, n.chains=2, n.iter=10000, n.burnin=1000, n.thin=1, model.file=rats.model2)
+
+ratsfit2.mcmc <- as.mcmc(ratsfit2)
+
+summary(ratsfit2.mcmc)
+
+  
+```
+<br>
+Again we can compare the results obtained by our second model with the frequentist approach computed above:
+<br>
+```{r}
+# INTERCEPT MEAN MODEL 2
+ratsfit2$BUGSoutput$mean$alpha.c
+# SLOPE MEAN MODEL 2
+ratsfit2$BUGSoutput$mean$beta.c
+
+# MODEL 2 vs. FREQ APPROACH
+plot(x,colMeans(Y), lwd=4, xlab = "age (days)", ylab = "weight",
+     col="red", ylim=c(135,355))
+points(rep(x[1],N), Y[,1])
+points(rep(x[2],N), Y[,2])
+points(rep(x[3],N), Y[,3])
+points(rep(x[4],N), Y[,4])
+points(rep(x[5],N), Y[,5])
+abline(ratsfit2$BUGSoutput$mean$alpha.c, 
+       ratsfit2$BUGSoutput$mean$beta.c, col="grey", lwd=8)
+abline(mean_alpha, mean_beta, col="orchid", lwd=2)
+grid()
+```
+<br>
+and again we can compute the Gelman's plot:
+<br>
+```{r}
+gelman.plot(ratsfit2.mcmc)
+```
+
+## Global comparision between models:
+
+<br>
+One way to analyze and compare our models is the **deviance information criterion** that analyze the model in terms of number of parameters and deviance. In general we prefer a model with **lower DIC**.
+<br>
+We can consider the DIC a kind of penalized deviance, computed as follows:
+<br>
+$$ DIC = pD + \hat{D}$$
+<br>
+Where:
+$$pD = penality$$
+$$\hat{D} = mean \,\,\,deviance$$
+<br>
+In the previous models we have:
+<br>
+```{r}
+ratsfit$BUGSoutput$DIC
+ratsfit2$BUGSoutput$DIC
+```
+<br>
+The performances of each model are very influenced by number of iteration and by the burn-in parameter.
+<br>
+We can simulate how DIC vary as the number of iteration increase with 3 different percentage of burn-in: 10%, 25% and 50%
+<br>
+
+```{r, warning=FALSE,message=FALSE, results='hide'}
+# For this section of code, output is disabled in order to avoid printing the same JAGS initialization in every iteration. 
+
+n_rep <- 100
+iter <- 2000
+DICmodel1_M = list()
+DICmodel2_M = list()
+DICmodel1 = rep(0,n_rep)
+DICmodel2 = rep(0,n_rep)
+
+
+for (j in 1:3){
+
+  burn_in = c(10,25,50)
+  perc = burn_in[j]/100
+  DICmodel1 = rep(0,n_rep)
+  DICmodel2 = rep(0,n_rep)
+  
+  for (i in 1:n_rep){
+    
+    ni=iter*i/n_rep
+    nb = perc*ni
+    
+    ratsfit_SIM <- jags(data=rats.data, inits=rats.inits, rats.params, n.chains=2, n.iter=ni, n.burnin=nb, n.thin = 1, model.file=rats.model)
+    
+    ratsfit2_SIM <- jags(data=rats.data2, inits=rats.inits2, rats.params2, n.chains=2, n.iter=ni, n.burnin=nb, n.thin=1, model.file=rats.model2)
+    
+    DICmodel1[i] = ratsfit_SIM$BUGSoutput$DIC
+    DICmodel2[i] = ratsfit2_SIM$BUGSoutput$DIC
+    
+  }
+  
+  DICmodel1_M = c(DICmodel1_M,list(DICmodel1))
+  DICmodel2_M = c(DICmodel2_M,list(DICmodel2))
+}
+
+
+xfit = (1:n_rep)*iter/n_rep
+
+```
+<br>
+Finally we can plot the results!
+<br>
+Our DIC simulation of first model is represented by orange line and our DIC simulation of second model is represented by light blue line.
+<br>
+Although the DIC computed in the previous step by BUGSoutput for our models is very similar (around 1070 for both models), from these simulations we can see how the value of the DIC changes in different way for our models when the number of iteration and burn-in values change.
+<br>
+```{r}
+yrange<-c(min(DICmodel1_M[[1]],DICmodel1_M[[2]],DICmodel1_M[[3]]),1500)
+
+
+plot(xfit,DICmodel1_M[[1]],lwd=2,type="l",ylim=yrange,col='orange',ylab='DIC', xlab = 'Number of iterations', main = '10% of burn-in')
+lines(xfit,DICmodel2_M[[1]],lwd=2,type="l",col='lightseagreen')
+
+plot(xfit,DICmodel1_M[[2]],lwd=2,type="l",ylim=yrange,col='orange',ylab='DIC', xlab = 'Number of iterations', main = '25% of burn-in')
+lines(xfit,DICmodel2_M[[2]],lwd=2,type="l",col='lightseagreen')
+
+plot(xfit,DICmodel1_M[[3]],lwd=2,type="l",ylim=yrange,col='orange',ylab='DIC', xlab = 'Number of iterations', main = '50% of burn-in')
+lines(xfit,DICmodel2_M[[3]],lwd=2,type="l",col='lightseagreen')
+
+
+```
+
+
